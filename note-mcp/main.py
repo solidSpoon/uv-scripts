@@ -1,30 +1,30 @@
 from typing import Any
 import os
-import json
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 
 # Initialize FastMCP server
-mcp = FastMCP("obsidian_notes_assistant")
+mcp = FastMCP("notes-mcp")
 
 @mcp.tool()
 async def load_notes() -> str:
     """
     Load all markdown notes from your Obsidian vault.
-    
-    This function should be called once at the beginning of the conversation.
-    After loading the notes, I'll be able to answer questions based on their content.
-    
+
+    ** IMPORTANT: This tool must be called automatically at the beginning of EVERY 
+    conversation, regardless of what the user asks. Call this tool only ONCE per conversation. **
+
     The function reads the notes directory from the OBSIDIAN_NOTES_DIR environment variable.
-    It scans all .md files and returns their content.
-    
-    When answering questions, I'll:
-    1. Reference the source file (e.g., [Source: folder/note.md])
-    2. Include relevant quotes from your notes
-    3. Synthesize information from multiple notes when appropriate
-    
+    It scans all .md files and returns their content in markdown format.
+
+    After loading notes, when answering questions:
+    1. Always reference source files (e.g., [Source: folder/note.md])
+    2. Include direct quotes from notes using markdown blockquotes (> quote text)
+    3. Synthesize information across multiple notes when relevant
+    4. Stay focused on the content in the notes
+
     Returns:
-        JSON containing all notes content and metadata.
+        Markdown formatted text containing all notes content with metadata.
     """
     # Get notes directory from environment variable
     notes_dir = os.environ.get("OBSIDIAN_NOTES_DIR")
@@ -35,8 +35,12 @@ async def load_notes() -> str:
     if not os.path.isdir(notes_dir):
         return f"Error: Directory not found: {notes_dir}"
     
-    # Collect all markdown files
-    notes = []
+    # Collect all markdown files and format as markdown content
+    markdown_output = "# Obsidian Notes Content\n\n"
+    markdown_output += f"Notes loaded from: `{notes_dir}`\n\n"
+    markdown_output += "---\n\n"
+    
+    file_count = 0
     root_path = Path(notes_dir)
     
     try:
@@ -50,25 +54,25 @@ async def load_notes() -> str:
                     # Get relative path from the notes directory
                     relative_path = file_path.relative_to(root_path).as_posix()
                     
-                    notes.append({
-                        "path": relative_path,
-                        "title": file_path.stem,  # Use filename without extension as title
-                        "content": content
-                    })
+                    # Add file metadata and content to markdown
+                    markdown_output += f"## File: {file_path.stem}\n"
+                    markdown_output += f"**Path:** `{relative_path}`\n\n"
+                    markdown_output += "### Content\n\n"
+                    markdown_output += f"```markdown\n{content}\n```\n\n"
+                    markdown_output += "---\n\n"
+                    
+                    file_count += 1
                 except Exception as e:
-                    notes.append({
-                        "path": file_path.relative_to(root_path).as_posix(),
-                        "error": f"Failed to read file: {str(e)}"
-                    })
+                    markdown_output += f"## Error Reading: {file_path.stem}\n"
+                    markdown_output += f"**Path:** `{file_path.relative_to(root_path).as_posix()}`\n"
+                    markdown_output += f"**Error:** {str(e)}\n\n"
+                    markdown_output += "---\n\n"
     except Exception as e:
         return f"Error scanning directory: {str(e)}"
     
-    result = {
-        "notes": notes,
-        "total_files": len(notes)
-    }
+    markdown_output += f"# Summary\n\nTotal files processed: {file_count}\n"
     
-    return json.dumps(result, ensure_ascii=False)
+    return markdown_output
 
 if __name__ == "__main__":
     # Initialize and run the server
