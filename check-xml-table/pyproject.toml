@@ -1,10 +1,9 @@
 [project]
-name = "uv-scripts"
+name = "check-xml-table"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
-
-[tool.uv.workspace]
-members = ["note-mcp", "check-xml-table", "mcp-ai-review"]
+dependencies = [
+    "lxml>=5.3.1",
+]
