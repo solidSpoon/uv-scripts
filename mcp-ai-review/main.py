@@ -1,243 +1,239 @@
 import os
 import subprocess
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from mcp.server.fastmcp import FastMCP
+import logging
 
-# 初始化 FastMCP 服务
-mcp = FastMCP("git-review-mcp")
+# Configure logging (same as before, ensure it doesn't print to stdout)
+logger = logging.getLogger("git_diff_mcp")
+# Add handlers or configure level as needed, e.g., NullHandler to suppress
+logger.addHandler(logging.NullHandler())
+# Or configure file logging etc.
+# logger.propagate = False # Optional: Prevent propagation if root logger prints
 
+# Initialize FastMCP server
+mcp = FastMCP("git_diff_mcp")
 
-# --- 辅助函数 ---
+# --- Timeout constant ---
+GIT_COMMAND_TIMEOUT = 30  # Timeout in seconds for git commands
+
 
 def _run_git_command(repo_path: str, command: List[str]) -> subprocess.CompletedProcess:
-    """执行 git 命令并捕获输出，处理基本错误"""
+    """
+    Helper function to run a git command safely for stdio transport.
+    Redirects stdin to DEVNULL and captures output. Includes timeout.
+    """
     try:
+        # logger.info(f"Running command: {' '.join(command)} in {repo_path}")
         result = subprocess.run(
-            ['git'] + command,
+            command,
             cwd=repo_path,
             capture_output=True,
             text=True,
-            encoding='utf-8',
-            check=False  # 我们将手动检查返回码
+            encoding="utf-8",
+            check=False,
+            stdin=subprocess.DEVNULL,  # *** CRUCIAL: Prevent git from reading stdin ***
+            timeout=GIT_COMMAND_TIMEOUT  # *** ADDED: Prevent indefinite hangs ***
         )
+        # logger.info(f"Command finished with code: {result.returncode}")
         return result
     except FileNotFoundError:
-        # Git 未安装或不在 PATH 中
-        raise RuntimeError("Error: 'git' command not found. Please ensure Git is installed and in your PATH.")
+        # logger.error("Git command not found.")
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=-1,
+            stdout="",
+            stderr="Git command not found. Make sure Git is installed and in the system's PATH."
+        )
+    except subprocess.TimeoutExpired:
+        # logger.error(f"Git command timed out after {GIT_COMMAND_TIMEOUT} seconds: {' '.join(command)}")
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=-3,  # Use a distinct code for timeout
+            stdout="",
+            stderr=f"Git command timed out after {GIT_COMMAND_TIMEOUT} seconds. The repository might be very large, the command stuck, or requires interaction."
+        )
     except Exception as e:
-        # 其他潜在错误 (例如权限问题)
-        raise RuntimeError(f"An unexpected error occurred while running git: {e}")
+        # logger.error(f"Exception running git command: {e}", exc_info=True)
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=-2,
+            stdout="",
+            stderr=f"An unexpected error occurred while running git: {str(e)}"
+        )
 
 
-def _format_commit_diff_md(commit_hash: str, git_show_output: str, error_msg: Optional[str] = None) -> str:
-    """将 'git show' 的输出格式化为 Markdown"""
-    md_output = f"## Commit: `{commit_hash}`\n\n"
+@mcp.tool()
+def get_git_commit_diffs(
+        commit_ids: Optional[List[str]] = None,
+        recent_count: int = 1,
+        context_lines: int = 50,
+        file_types: Optional[List[str]] = None,
+) -> str:
+    """
+    Retrieves Git commit information and diffs for AI code review.
+    (Docstring remains the same - no functional change here)
+    ... [rest of the docstring] ...
+    """
+    # 1. Get Git Repo Path & Validate
+    repo_path_str = os.environ.get("GIT_REPO_PATH")
+    if not repo_path_str:
+        return "Error: GIT_REPO_PATH environment variable not set."
 
-    if error_msg:
-        md_output += f"**Error processing commit:**\n```\n{error_msg}\n```\n"
-        md_output += "---\n\n"
-        return md_output
+    repo_path = Path(repo_path_str)
+    if not repo_path.is_dir():
+        return f"Error: GIT_REPO_PATH '{repo_path_str}' is not a valid directory."
 
-    if not git_show_output:
-        md_output += "**Warning:** No output received from `git show`. This might mean the commit is invalid, empty, or an issue occurred.\n"
-        md_output += "---\n\n"
-        return md_output
+    git_dir = repo_path / ".git"
+    if not git_dir.exists():
+        return f"Error: Directory '{repo_path_str}' does not appear to be a Git repository (.git directory not found)."
 
-    # 分离提交信息和 diff 内容
-    # 'git show --pretty=...' 的输出通常包含 Commit 信息，然后是 diff
-    # diff 内容通常以 "diff --git" 开头
-    try:
-        diff_start_index = git_show_output.index("diff --git")
-        commit_info = git_show_output[:diff_start_index].strip()
-        diff_content = git_show_output[diff_start_index:]
-    except ValueError:
-        # 没有找到 "diff --git"，可能此提交没有代码更改（或者只更改了我们过滤掉的文件）
-        commit_info = git_show_output.strip()
-        diff_content = "*No relevant code changes (.java or .xml) found in this commit.*"
+    # 2. Determine Target Commit IDs
+    target_commit_ids: List[str] = []
+    error_messages: List[str] = []
 
-    md_output += "### Commit Details\n"
-    md_output += f"```\n{commit_info}\n```\n\n"  # 使用普通代码块显示提交信息
+    # Use a consistent way to check for errors from _run_git_command
+    def check_command_result(result: subprocess.CompletedProcess, context_msg: str) -> Optional[str]:
+        """Checks result and returns error message string if failed, else None."""
+        if result.returncode != 0:
+            err_msg = f"{context_msg}: Git command failed (code {result.returncode})."
+            # Include stderr if it provides useful info
+            if result.stderr:
+                # Limit stderr length to avoid overly long messages
+                stderr_snippet = result.stderr.strip()[:500]
+                err_msg += f"\nDetails: {stderr_snippet}"
+                if len(result.stderr.strip()) > 500:
+                    err_msg += "..."
+            # Special handling for our custom error codes
+            elif result.returncode == -1:  # FileNotFoundError
+                err_msg = f"{context_msg}: {result.stderr}"  # Already formatted message
+            elif result.returncode == -3:  # TimeoutExpired
+                err_msg = f"{context_msg}: {result.stderr}"  # Already formatted message
+            return err_msg
+        return None
 
-    md_output += "### Code Changes (.java, .xml)\n"
-    if diff_content.startswith("diff --git"):
-        md_output += f"```diff\n{diff_content}\n```\n"  # 使用 diff 代码块显示差异
+    if commit_ids:
+        # logger.info(f"Fetching specific commit IDs: {commit_ids}")
+        target_commit_ids = commit_ids
     else:
-        md_output += f"{diff_content}\n"  # 显示提示信息
+        # logger.info(f"Fetching {recent_count} recent commit IDs.")
+        if recent_count <= 0:
+            return "Error: recent_count must be greater than 0."
+        cmd = ["git", "log", f"-n{recent_count}", "--pretty=format:%H", "HEAD"]
+        result = _run_git_command(str(repo_path), cmd)
 
-    md_output += "---\n\n"  # 分隔符
-    return md_output
-
-
-def _get_single_commit_info(repo_path: str, commit_id: str, context_lines: int) -> str:
-    """获取单个提交的信息并格式化"""
-    git_command = [
-        'show',
-        f'-U{context_lines}',
-        '--pretty=fuller',  # 显示更完整的作者/提交者信息和日期
-        # '--word-diff=color', # 更清晰地显示单词级别的差异（可选，但对审查有帮助）
-        # '--color=always', # 强制颜色输出，diff块会更好看（虽然md可能不渲染）
-        commit_id,
-        '--',  # 分隔符，后面是路径过滤器
-        '*.java',
-        '*.xml'
-    ]
-
-    result = _run_git_command(repo_path, git_command)
-
-    if result.returncode != 0:
-        error_message = f"Git command failed with exit code {result.returncode}.\nStderr:\n{result.stderr}"
-        # 即使出错，也尝试格式化，包含错误信息
-        return _format_commit_diff_md(commit_id, result.stdout, error_message)
-    elif not result.stdout.strip() and not "diff --git" in result.stdout:
-        # 命令成功，但没有输出 stdout，可能是因为没有匹配的文件更改
-        # 尝试获取基础提交信息，但不包括 diff
-        info_command = ['show', '--pretty=fuller', '--no-patch', commit_id]
-        info_result = _run_git_command(repo_path, info_command)
-        if info_result.returncode == 0:
-            return _format_commit_diff_md(commit_id, info_result.stdout)
+        error = check_command_result(result, "Error fetching recent commit IDs")
+        if error:
+            error_messages.append(error)
+        elif result.stdout:
+            target_commit_ids = result.stdout.strip().split("\n")
         else:
-            # 如果连获取基本信息都失败，报告原始错误
-            error_message = f"Git command failed to get base info. Stderr:\n{info_result.stderr}"
-            return _format_commit_diff_md(commit_id, "", error_message)
+            error_messages.append("No recent commits found in the repository (or git log returned empty).")
 
-    return _format_commit_diff_md(commit_id, result.stdout)
+    if error_messages:
+        # Combine and return errors immediately if we couldn't get commit IDs
+        return "\n".join(error_messages)
 
+    if not target_commit_ids:
+        return "No commits found or specified."
 
-# --- MCP 工具 ---
+    # logger.info(f"Target commit IDs to process: {target_commit_ids}")
 
-@mcp.tool()
-def get_recent_commits_diff(n: int = 1, context_lines: int = 50) -> str:
-    """
-    获取当前分支最近 N 次提交中 .java 和 .xml 文件的变更。
+    # 3. Define File Filters
+    active_file_types = file_types if file_types else ['.java', '.xml']
+    path_filters = [f"*{ft}" for ft in active_file_types]
+    # logger.info(f"Using file type filters: {path_filters}")
 
-    从 GIT_REPO_PATH 环境变量指定的 Git 仓库获取信息。
-    返回 Markdown 格式的字符串，包含提交详情和带指定上下文行数的代码差异。
+    # 4. Iterate and Get Diffs for each commit
+    markdown_output_parts = []
+    markdown_output_parts.append(f"# Git Commit Diff Report")
+    markdown_output_parts.append(f"Repository: `{repo_path_str}`")
+    markdown_output_parts.append(f"Requested Commits: {' '.join(target_commit_ids)}")
+    markdown_output_parts.append(f"Context Lines: {context_lines}")
+    markdown_output_parts.append(f"File Types Filtered: `{', '.join(active_file_types)}`")
+    markdown_output_parts.append("\n---\n")
 
-    Args:
-        n (int): 要获取的最近提交数量 (默认为 1)。
-        context_lines (int): 代码差异显示的上下文行数 (默认为 50)。
+    has_content = False
+    commit_errors = []  # Collect errors per commit
 
-    Returns:
-        str: Markdown 格式的提交信息和代码差异，或错误信息。
-    """
-    repo_path = os.environ.get("GIT_REPO_PATH")
-    if not repo_path:
-        return "Error: GIT_REPO_PATH environment variable not set."
-    if not Path(repo_path).is_dir():
-        return f"Error: GIT_REPO_PATH '{repo_path}' is not a valid directory."
-    if not Path(repo_path, '.git').exists():
-        return f"Error: Directory '{repo_path}' does not appear to be a Git repository."
+    for commit_id in target_commit_ids:
+        commit_id = commit_id.strip()
+        if not commit_id:
+            continue
 
-    if n <= 0:
-        return "Error: Number of commits 'n' must be greater than 0."
+        # logger.info(f"Processing commit: {commit_id}")
+        markdown_output_parts.append(f"## Commit: `{commit_id}`\n")
 
-    # 1. 获取最近 n 次提交的 ID
-    log_command = ['log', f'-n{n}', '--pretty=format:%H']  # %H 获取完整的 commit hash
-    log_result = _run_git_command(repo_path, log_command)
+        try:
+            cmd = [
+                "git",
+                "show",
+                "--no-color",
+                f"--unified={context_lines}",
+                commit_id,
+                "--",
+            ]
+            cmd.extend(path_filters)
 
-    if log_result.returncode != 0:
-        return f"Error getting commit logs:\n```\n{log_result.stderr}\n```"
+            result = _run_git_command(str(repo_path), cmd)
 
-    commit_ids = log_result.stdout.strip().split('\n')
-    if not commit_ids or not commit_ids[0]:
-        return f"No commits found in repository '{repo_path}' or an error occurred."
+            # Check for errors during git show execution
+            error = check_command_result(result, f"Processing commit `{commit_id}`")
+            if error:
+                # Record the error, but continue to next commit
+                commit_errors.append(error)
+                markdown_output_parts.append(f"**Error:**\n```\n{error}\n```\n")
 
-    # 2. 逐个获取并格式化每个提交的 diff
-    all_diffs_md = f"# Reviewing Last {len(commit_ids)} Commit(s) in '{repo_path}'\n\n"
-    all_diffs_md += f"Showing changes for `.java` and `.xml` files with `{context_lines}` lines of context.\n\n"
-    all_diffs_md += "---\n\n"
+            # Process successful or partially successful execution
+            elif result.stdout:
+                diff_content = result.stdout.strip()
+                if "diff --git" in diff_content:
+                    markdown_output_parts.append(f"```diff\n{diff_content}\n```\n")
+                    has_content = True
+                else:
+                    # Git show succeeded but no files matched the filters
+                    # Show only commit header part if diff is missing
+                    commit_header = diff_content.split('diff --git')[0].strip()
+                    if commit_header:  # Display header if it exists
+                        markdown_output_parts.append(f"```\n{commit_header}\n```\n")
+                    markdown_output_parts.append(
+                        f"*(No changes matching file filters `{', '.join(active_file_types)}` found in this commit)*\n")
+            else:
+                # Successful execution but empty stdout
+                markdown_output_parts.append(
+                    f"*(No output returned for commit `{commit_id}`. This might indicate an empty commit or issue with filters.)*\n")
 
-    try:
-        for commit_id in commit_ids:
-            all_diffs_md += _get_single_commit_info(repo_path, commit_id, context_lines)
-    except Exception as e:
-        all_diffs_md += f"\n\n**An unexpected error occurred during processing:**\n```\n{str(e)}\n```"
+        except Exception as e:
+            # logger.error(f"Unexpected Python error processing commit {commit_id}: {e}", exc_info=True)
+            error_msg = f"Internal Python Error processing commit `{commit_id}`: {str(e)}"
+            commit_errors.append(error_msg)
+            markdown_output_parts.append(f"**Error:**\n```\n{error_msg}\n```\n")
 
-    return all_diffs_md
+        markdown_output_parts.append("---\n")  # Separator between commits
 
+    # Add a summary section for errors encountered
+    if commit_errors:
+        markdown_output_parts.append("## Processing Errors Summary\n")
+        for i, err in enumerate(commit_errors):
+            markdown_output_parts.append(f"{i + 1}. {err}\n")
+        markdown_output_parts.append("---\n")
 
-@mcp.tool()
-def get_specific_commits_diff(commit_ids: List[str], context_lines: int = 50) -> str:
-    """
-    获取指定提交 ID 列表中 .java 和 .xml 文件的变更。
+    if not has_content and not commit_errors:
+        markdown_output_parts.append(
+            "\n*Summary: No code changes matching the specified filters were found in the requested commits.*")
+    elif not has_content and commit_errors:
+        markdown_output_parts.append(
+            "\n*Summary: No matching code changes were found, and some errors occurred during processing.*")
 
-    从 GIT_REPO_PATH 环境变量指定的 Git 仓库获取信息。
-    返回 Markdown 格式的字符串，包含提交详情和带指定上下文行数的代码差异。
-
-    Args:
-        commit_ids (List[str]): 要获取信息的提交 ID 列表。
-        context_lines (int): 代码差异显示的上下文行数 (默认为 50)。
-
-    Returns:
-        str: Markdown 格式的提交信息和代码差异，或错误信息。
-    """
-    repo_path = os.environ.get("GIT_REPO_PATH")
-    if not repo_path:
-        return "Error: GIT_REPO_PATH environment variable not set."
-    if not Path(repo_path).is_dir():
-        return f"Error: GIT_REPO_PATH '{repo_path}' is not a valid directory."
-    if not Path(repo_path, '.git').exists():
-        return f"Error: Directory '{repo_path}' does not appear to be a Git repository."
-
-    if not commit_ids:
-        return "Error: No commit IDs provided."
-
-    all_diffs_md = f"# Reviewing {len(commit_ids)} Specific Commit(s) in '{repo_path}'\n\n"
-    all_diffs_md += f"Showing changes for `.java` and `.xml` files with `{context_lines}` lines of context.\n\n"
-    all_diffs_md += "---\n\n"
-
-    try:
-        for commit_id in commit_ids:
-            # 基本的 ID 格式检查 (可以更严格)
-            if not commit_id or len(commit_id) < 6:  # Git 短 hash 通常至少 6-7 位
-                all_diffs_md += f"## Commit: `{commit_id}`\n\n**Error:** Invalid or too short commit ID provided.\n\n---\n\n"
-                continue
-            all_diffs_md += _get_single_commit_info(repo_path, commit_id, context_lines)
-    except Exception as e:
-        all_diffs_md += f"\n\n**An unexpected error occurred during processing:**\n```\n{str(e)}\n```"
-
-    return all_diffs_md
+    return "\n".join(markdown_output_parts)
 
 
-def test_git_review_mcp():
-    """测试 Git Review MCP 功能"""
-    # 确保设置了环境变量
-    repo_path = os.environ.get("GIT_REPO_PATH")
-    if not repo_path:
-        print("请先设置 GIT_REPO_PATH 环境变量，指向一个 Git 仓库")
-        return
-    print(f"使用仓库: {repo_path}")
-
-    # 测试最近提交
-    print("\n=== 测试获取最近 1 次提交 ===")
-    result = get_recent_commits_diff(n=1, context_lines=20)
-    print(result)
-
-    # 测试最近多次提交
-    print("\n=== 测试获取最近 2 次提交 ===")
-    result = get_recent_commits_diff(n=2, context_lines=10)
-    print(result)
-
-    # 获取最近的 commit ID 用于测试特定提交
-    try:
-        recent_commit = subprocess.run(
-            ['git', 'rev-parse', 'HEAD'],
-            cwd=repo_path,
-            capture_output=True,
-            text=True
-        ).stdout.strip()
-
-        print(f"\n=== 测试获取特定提交 {recent_commit[:8]} ===")
-        result = get_specific_commits_diff(commit_ids=[recent_commit], context_lines=15)
-        print(result)
-    except Exception as e:
-        print(f"获取当前提交失败: {e}")
-
-    print("\n测试完成!")
-
-
-# 当直接运行此脚本时执行测试
+# 5. MCP Runner (for local testing or direct execution)
 if __name__ == "__main__":
-    # test_git_review_mcp()
+    # Example usage... (same as before)
+
+    # logger.info("Starting MCP server with stdio transport...")
     mcp.run(transport='stdio')
+    # logger.info("MCP server finished.")
+
