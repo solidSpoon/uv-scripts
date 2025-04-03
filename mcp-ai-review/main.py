@@ -7,6 +7,7 @@ from mcp.server.fastmcp import FastMCP
 # 初始化 FastMCP 服务
 mcp = FastMCP("git-review-mcp")
 
+
 # --- 辅助函数 ---
 
 def _run_git_command(repo_path: str, command: List[str]) -> subprocess.CompletedProcess:
@@ -28,6 +29,7 @@ def _run_git_command(repo_path: str, command: List[str]) -> subprocess.Completed
         # 其他潜在错误 (例如权限问题)
         raise RuntimeError(f"An unexpected error occurred while running git: {e}")
 
+
 def _format_commit_diff_md(commit_hash: str, git_show_output: str, error_msg: Optional[str] = None) -> str:
     """将 'git show' 的输出格式化为 Markdown"""
     md_output = f"## Commit: `{commit_hash}`\n\n"
@@ -38,9 +40,9 @@ def _format_commit_diff_md(commit_hash: str, git_show_output: str, error_msg: Op
         return md_output
 
     if not git_show_output:
-         md_output += "**Warning:** No output received from `git show`. This might mean the commit is invalid, empty, or an issue occurred.\n"
-         md_output += "---\n\n"
-         return md_output
+        md_output += "**Warning:** No output received from `git show`. This might mean the commit is invalid, empty, or an issue occurred.\n"
+        md_output += "---\n\n"
+        return md_output
 
     # 分离提交信息和 diff 内容
     # 'git show --pretty=...' 的输出通常包含 Commit 信息，然后是 diff
@@ -55,13 +57,13 @@ def _format_commit_diff_md(commit_hash: str, git_show_output: str, error_msg: Op
         diff_content = "*No relevant code changes (.java or .xml) found in this commit.*"
 
     md_output += "### Commit Details\n"
-    md_output += f"```\n{commit_info}\n```\n\n" # 使用普通代码块显示提交信息
+    md_output += f"```\n{commit_info}\n```\n\n"  # 使用普通代码块显示提交信息
 
     md_output += "### Code Changes (.java, .xml)\n"
     if diff_content.startswith("diff --git"):
-        md_output += f"```diff\n{diff_content}\n```\n" # 使用 diff 代码块显示差异
+        md_output += f"```diff\n{diff_content}\n```\n"  # 使用 diff 代码块显示差异
     else:
-        md_output += f"{diff_content}\n" # 显示提示信息
+        md_output += f"{diff_content}\n"  # 显示提示信息
 
     md_output += "---\n\n"  # 分隔符
     return md_output
@@ -72,11 +74,11 @@ def _get_single_commit_info(repo_path: str, commit_id: str, context_lines: int) 
     git_command = [
         'show',
         f'-U{context_lines}',
-        '--pretty=fuller', # 显示更完整的作者/提交者信息和日期
+        '--pretty=fuller',  # 显示更完整的作者/提交者信息和日期
         # '--word-diff=color', # 更清晰地显示单词级别的差异（可选，但对审查有帮助）
         # '--color=always', # 强制颜色输出，diff块会更好看（虽然md可能不渲染）
         commit_id,
-        '--', # 分隔符，后面是路径过滤器
+        '--',  # 分隔符，后面是路径过滤器
         '*.java',
         '*.xml'
     ]
@@ -88,16 +90,16 @@ def _get_single_commit_info(repo_path: str, commit_id: str, context_lines: int) 
         # 即使出错，也尝试格式化，包含错误信息
         return _format_commit_diff_md(commit_id, result.stdout, error_message)
     elif not result.stdout.strip() and not "diff --git" in result.stdout:
-         # 命令成功，但没有输出 stdout，可能是因为没有匹配的文件更改
-         # 尝试获取基础提交信息，但不包括 diff
-         info_command = ['show', '--pretty=fuller', '--no-patch', commit_id]
-         info_result = _run_git_command(repo_path, info_command)
-         if info_result.returncode == 0:
-             return _format_commit_diff_md(commit_id, info_result.stdout)
-         else:
-             # 如果连获取基本信息都失败，报告原始错误
-             error_message = f"Git command failed to get base info. Stderr:\n{info_result.stderr}"
-             return _format_commit_diff_md(commit_id, "", error_message)
+        # 命令成功，但没有输出 stdout，可能是因为没有匹配的文件更改
+        # 尝试获取基础提交信息，但不包括 diff
+        info_command = ['show', '--pretty=fuller', '--no-patch', commit_id]
+        info_result = _run_git_command(repo_path, info_command)
+        if info_result.returncode == 0:
+            return _format_commit_diff_md(commit_id, info_result.stdout)
+        else:
+            # 如果连获取基本信息都失败，报告原始错误
+            error_message = f"Git command failed to get base info. Stderr:\n{info_result.stderr}"
+            return _format_commit_diff_md(commit_id, "", error_message)
 
     return _format_commit_diff_md(commit_id, result.stdout)
 
@@ -125,13 +127,13 @@ def get_recent_commits_diff(n: int = 1, context_lines: int = 50) -> str:
     if not Path(repo_path).is_dir():
         return f"Error: GIT_REPO_PATH '{repo_path}' is not a valid directory."
     if not Path(repo_path, '.git').exists():
-         return f"Error: Directory '{repo_path}' does not appear to be a Git repository."
+        return f"Error: Directory '{repo_path}' does not appear to be a Git repository."
 
     if n <= 0:
         return "Error: Number of commits 'n' must be greater than 0."
 
     # 1. 获取最近 n 次提交的 ID
-    log_command = ['log', f'-n{n}', '--pretty=format:%H'] # %H 获取完整的 commit hash
+    log_command = ['log', f'-n{n}', '--pretty=format:%H']  # %H 获取完整的 commit hash
     log_result = _run_git_command(repo_path, log_command)
 
     if log_result.returncode != 0:
@@ -154,6 +156,7 @@ def get_recent_commits_diff(n: int = 1, context_lines: int = 50) -> str:
 
     return all_diffs_md
 
+
 @mcp.tool()
 def get_specific_commits_diff(commit_ids: List[str], context_lines: int = 50) -> str:
     """
@@ -175,7 +178,7 @@ def get_specific_commits_diff(commit_ids: List[str], context_lines: int = 50) ->
     if not Path(repo_path).is_dir():
         return f"Error: GIT_REPO_PATH '{repo_path}' is not a valid directory."
     if not Path(repo_path, '.git').exists():
-         return f"Error: Directory '{repo_path}' does not appear to be a Git repository."
+        return f"Error: Directory '{repo_path}' does not appear to be a Git repository."
 
     if not commit_ids:
         return "Error: No commit IDs provided."
@@ -187,31 +190,15 @@ def get_specific_commits_diff(commit_ids: List[str], context_lines: int = 50) ->
     try:
         for commit_id in commit_ids:
             # 基本的 ID 格式检查 (可以更严格)
-            if not commit_id or len(commit_id) < 6: # Git 短 hash 通常至少 6-7 位
-                 all_diffs_md += f"## Commit: `{commit_id}`\n\n**Error:** Invalid or too short commit ID provided.\n\n---\n\n"
-                 continue
+            if not commit_id or len(commit_id) < 6:  # Git 短 hash 通常至少 6-7 位
+                all_diffs_md += f"## Commit: `{commit_id}`\n\n**Error:** Invalid or too short commit ID provided.\n\n---\n\n"
+                continue
             all_diffs_md += _get_single_commit_info(repo_path, commit_id, context_lines)
     except Exception as e:
         all_diffs_md += f"\n\n**An unexpected error occurred during processing:**\n```\n{str(e)}\n```"
 
     return all_diffs_md
 
-# # --- MCP 服务器运行 ---
-# if __name__ == "__main__":
-#     # !! 重要：在运行前，请确保设置了 GIT_REPO_PATH 环境变量 !!
-#     # 例如 (Linux/macOS): export GIT_REPO_PATH=/path/to/your/repo
-#     # 例如 (Windows CMD): set GIT_REPO_PATH=C:\path\to\your\repo
-#     # 例如 (Windows PowerShell): $env:GIT_REPO_PATH="C:\path\to\your\repo"
-#
-#     if not os.environ.get("GIT_REPO_PATH"):
-#         print("---------------------------------------------------------")
-#         print("ERROR: Please set the GIT_REPO_PATH environment variable")
-#         print("       before running this script.")
-#         print("---------------------------------------------------------")
-#     else:
-#         print(f"Starting MCP server. Using Git repository: {os.environ.get('GIT_REPO_PATH')}")
-#         # 通过 stdio 运行，这样可以集成到其他工具链中
-#         mcp.run(transport='stdio')
 
 def test_git_review_mcp():
     """测试 Git Review MCP 功能"""
@@ -252,4 +239,5 @@ def test_git_review_mcp():
 
 # 当直接运行此脚本时执行测试
 if __name__ == "__main__":
-    test_git_review_mcp()
+    # test_git_review_mcp()
+    mcp.run(transport='stdio')
