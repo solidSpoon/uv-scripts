@@ -173,6 +173,8 @@ def add_words_batch(data: AddWordsInputModel) -> str:
     For single word, pass an array with one item. Generates audio using OpenAI TTS.
     Requires Anki to be running with AnkiConnect. Runs synchronously.
     Triggers a full Anki deck backup to CSV after completion.
+
+    IMPORTANT USAGE NOTE FOR CALLER (LLM): Do NOT add any tags to the words unless the end-user explicitly requests specific tags. If the user does not specify tags, the 'tags' field in the input data MUST be omitted or set to null. Do not infer or create tags automatically.
     """
     words_to_process = data.words
     word_count = len(words_to_process)

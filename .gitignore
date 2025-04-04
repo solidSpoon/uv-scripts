@@ -8,3 +8,6 @@ wheels/
 
 # Virtual environments
 .venv
+
+mcp-anki-maker/data/audio
+mcp-anki-maker/logs

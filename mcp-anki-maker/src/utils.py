@@ -24,20 +24,13 @@ TEXT_PATTERN = re.compile(r"^[a-zA-Z0-9\s.,!?;:'\"()\[\]\-]*$")
 TAG_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 def validate_word_data(word_data: WordInput) -> Tuple[bool, Optional[str]]:
-    """Validates the word data fields."""
-    if not WORD_PATTERN.match(word_data.word):
-        return False, f'Word "{word_data.word}" contains invalid characters. Use only English letters, spaces, hyphens, apostrophes.'
-    if not TEXT_PATTERN.match(word_data.definition):
-        return False, f'Definition for "{word_data.word}" contains invalid characters or is not English.'
-    if word_data.example and not TEXT_PATTERN.match(word_data.example):
-        return False, f'Example for "{word_data.word}" contains invalid characters or is not English.'
-    # if word_data.notes and not TEXT_PATTERN.match(word_data.notes):
-    #     return False, f'Notes for "{word_data.word}" contains invalid characters or is not English.'
+    """Validates the word data fields (removed strict English checks)."""
     if word_data.tags:
         for tag in word_data.tags:
             if not TAG_PATTERN.match(tag):
                 return False, f'Tag "{tag}" for word "{word_data.word}" contains invalid characters. Use only letters, numbers, hyphens, underscores.'
     return True, None
+
 
 # --- Helper Functions ---
 def format_word_for_filename(word: str) -> str:
