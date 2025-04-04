@@ -1,7 +1,10 @@
+# src/main.py
 import atexit
 import sys
-from typing import List, Dict, Any
+import csv # Import csv module
+from typing import List, Dict, Any, Optional # Ensure Optional is imported
 import logging
+from pathlib import Path # Import Path
 
 # Use Pydantic directly for input model definition
 from pydantic import BaseModel, Field
@@ -9,7 +12,8 @@ from mcp.server.fastmcp import FastMCP
 from openai import OpenAI # Use synchronous client
 
 from .config import (
-    OPENAI_API_KEY, OPENAI_API_BASE, ANKI_DECK_NAME, ANKI_MODEL_NAME, logger
+    OPENAI_API_KEY, OPENAI_API_BASE, ANKI_DECK_NAME, ANKI_MODEL_NAME, logger,
+    DATA_DIR # Import DATA_DIR
 )
 from .utils import WordInput, validate_word_data # WordInput is already a Pydantic model
 from .anki_connect import AnkiConnectClient
@@ -28,9 +32,131 @@ audio_service = AudioService(openai_client, anki_client)
 mcp = FastMCP(
     name="anki-mcp-py-sync", # Renamed slightly
     version="1.0.0",
-    description="Synchronous Python version of Anki MCP for adding vocabulary with audio.",
+    description="Synchronous Python version of Anki MCP for adding vocabulary with audio and CSV backup.",
     logger=logger
 )
+
+# --- CSV Backup Configuration and Function ---
+CSV_BACKUP_FILE = DATA_DIR / "anki_vocabulary_backup.csv"
+# Define expected fields in Anki Notes and corresponding CSV headers
+# !!! IMPORTANT: Adjust these keys ("Word", "Definition", etc.) to EXACTLY match your Anki Note Type fields !!!
+ANKI_FIELD_MAP = {
+    "Word": "word",
+    "Definition": "definition",
+    "Example": "example",
+    # "Notes": "notes", # Assuming you have a 'Notes' field in Anki
+    # Add other text fields from your Anki note type here if you want them backed up
+    # e.g., "MyCustomField": "my_custom_field_header"
+}
+# Automatically create CSV headers based on the map + tags
+CSV_HEADERS = list(ANKI_FIELD_MAP.values()) + ["tags"]
+
+def backup_anki_deck_to_csv():
+    """Fetches all notes from the configured Anki deck and saves them to a CSV file."""
+    logger.info(f"Starting Anki deck backup to {CSV_BACKUP_FILE}...")
+    try:
+        # 1. Find all notes in the deck
+        # Use the deck name stored in the anki_client instance
+        query = f'"deck:{ANKI_DECK_NAME}"'
+        logger.debug(f"Finding notes with query: {query}")
+        note_ids = anki_client.find_notes(query)
+
+        if not note_ids:
+            logger.info("No notes found in the deck. Backup skipped.")
+            # Optionally create an empty CSV with headers
+            try:
+                with open(CSV_BACKUP_FILE, 'w', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.DictWriter(csvfile, fieldnames=CSV_HEADERS)
+                    writer.writeheader()
+                logger.info(f"Created empty backup file with headers: {CSV_BACKUP_FILE}")
+            except IOError as e:
+                logger.error(f"Failed to write empty backup CSV file: {e}", exc_info=True)
+            return
+
+        logger.info(f"Found {len(note_ids)} notes in deck '{ANKI_DECK_NAME}'. Fetching details...")
+
+        # 2. Get info for all notes (consider batching for very large decks)
+        notes_info = anki_client.get_notes_info(note_ids)
+
+        rows_to_write = []
+        processed_count = 0
+        skipped_count = 0
+
+        # 3. Process notes and format for CSV
+        for note in notes_info:
+            note_id_log = note.get('noteId', 'N/A') # For logging
+            try:
+                row = {}
+                fields = note.get("fields", {})
+
+                # Check if the note uses the expected model (optional but good practice)
+                current_model_name = note.get("modelName")
+                if current_model_name != ANKI_MODEL_NAME:
+                    logger.warning(f"Skipping note ID {note_id_log}: Model mismatch (Expected '{ANKI_MODEL_NAME}', Found '{current_model_name}').")
+                    skipped_count += 1
+                    continue
+
+                # Map Anki fields to CSV columns using ANKI_FIELD_MAP
+                for anki_field, csv_header in ANKI_FIELD_MAP.items():
+                    # Check if the field actually exists in the note's data
+                    if anki_field in fields:
+                        field_data = fields[anki_field]
+                        row[csv_header] = field_data.get("value", "") # Get value, default to empty string
+                    else:
+                        # Field defined in map doesn't exist in this note's model instance
+                        logger.warning(f"Field '{anki_field}' not found in note ID {note_id_log} (Model: '{current_model_name}'). Setting empty value in CSV.")
+                        row[csv_header] = "" # Assign empty string if field is missing
+
+                # Handle tags - join list into a comma-separated string
+                tags = note.get("tags", [])
+                row["tags"] = ",".join(tag for tag in tags if tag) # Ensure tags are strings and filter empty ones
+
+                # Basic check: ensure the primary 'word' field is not empty
+                word_header = ANKI_FIELD_MAP.get("Word", "word") # Get the CSV header for 'Word'
+                if not row.get(word_header):
+                     logger.warning(f"Skipping note ID {note_id_log} due to missing or empty primary 'Word' field value.")
+                     skipped_count += 1
+                     continue
+
+                rows_to_write.append(row)
+                processed_count += 1
+            except Exception as e:
+                logger.error(f"Error processing note ID {note_id_log} for backup: {e}", exc_info=False) # Keep log concise
+                skipped_count += 1
+
+        # 4. Write to CSV
+        if not rows_to_write:
+             logger.warning("No valid notes processed for backup after filtering.")
+             # Optionally write just the header if file doesn't exist or is empty
+             if not CSV_BACKUP_FILE.exists() or CSV_BACKUP_FILE.stat().st_size == 0:
+                 try:
+                     with open(CSV_BACKUP_FILE, 'w', newline='', encoding='utf-8') as csvfile:
+                         writer = csv.DictWriter(csvfile, fieldnames=CSV_HEADERS)
+                         writer.writeheader()
+                     logger.info(f"Wrote header only to empty backup file: {CSV_BACKUP_FILE}")
+                 except IOError as e:
+                     logger.error(f"Failed to write header to empty backup CSV file: {e}", exc_info=True)
+             return
+
+        logger.info(f"Writing {processed_count} processed notes to CSV...")
+        try:
+            # Ensure directory exists (should be handled by config.py, but double-check)
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            with open(CSV_BACKUP_FILE, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=CSV_HEADERS, extrasaction='ignore') # Ignore extra fields not in headers
+                writer.writeheader()
+                writer.writerows(rows_to_write)
+            logger.info(f"Successfully backed up {processed_count} notes to {CSV_BACKUP_FILE}. Skipped {skipped_count} notes.")
+        except IOError as e:
+            logger.error(f"Failed to write backup CSV file: {e}", exc_info=True)
+        except Exception as e:
+             logger.error(f"An unexpected error occurred during CSV writing: {e}", exc_info=True)
+
+    except ConnectionError as e:
+        logger.error(f"Anki connection error during backup: {e}. Backup aborted.")
+    except Exception as e:
+        logger.error(f"An unexpected error occurred during the backup process: {e}", exc_info=True)
+
 
 # --- Tool Input Model ---
 # Define the input structure using Pydantic, FastMCP uses this for validation
@@ -46,6 +172,7 @@ def add_words_batch(data: AddWordsInputModel) -> str:
     Add words to vocabulary list and create Anki cards (supports both single and batch operations).
     For single word, pass an array with one item. Generates audio using OpenAI TTS.
     Requires Anki to be running with AnkiConnect. Runs synchronously.
+    Triggers a full Anki deck backup to CSV after completion.
     """
     words_to_process = data.words
     word_count = len(words_to_process)
@@ -55,9 +182,11 @@ def add_words_batch(data: AddWordsInputModel) -> str:
 
     results: Dict[str, List[Dict[str, Any]]] = {"success": [], "failed": []}
     processed_count = 0
+    any_success = False # Track if at least one word was added successfully
 
     try:
         # Populate Anki media cache once before starting
+        # Consider if this refresh is needed here or just in audio_service
         audio_service._get_anki_media_files(force_refresh=True)
 
         for word_data in words_to_process:
@@ -67,7 +196,8 @@ def add_words_batch(data: AddWordsInputModel) -> str:
                 # 1. Validate Input Data
                 is_valid, error_msg = validate_word_data(word_data)
                 if not is_valid:
-                    raise ValueError(error_msg or "Invalid word data.")
+                    # Ensure error_msg is a string
+                    raise ValueError(str(error_msg) if error_msg else "Invalid word data.")
 
                 # 2. Generate Audio Files (Sequentially)
                 audio_results: Dict[str, str] = {}
@@ -93,14 +223,17 @@ def add_words_batch(data: AddWordsInputModel) -> str:
 
 
                 # 3. Prepare Anki Fields
+                # Ensure all fields expected by your Anki model are present, even if empty
                 fields = {
                     "Word": word_data.word,
                     "Definition": word_data.definition,
                     "Example": word_data.example or "",
+                    # "Notes": word_data.notes or "", # Include Notes field from input
                     "WordAudio": f"[sound:{audio_results['word']}]" if audio_results.get("word") else "",
                     "DefinitionAudio": f"[sound:{audio_results['definition']}]" if audio_results.get("definition") else "",
                     "ExampleAudio": f"[sound:{audio_results['example']}]" if audio_results.get("example") else "",
-                    # Add other fields from your model if necessary, ensuring they exist even if empty
+                    # Add other fields required by your ANKI_MODEL_NAME here, default to "" if not in input
+                    # e.g., "MyOtherField": ""
                 }
                 logger.debug(f"Prepared fields for Anki note: {fields}")
 
@@ -109,13 +242,18 @@ def add_words_batch(data: AddWordsInputModel) -> str:
                     deck_name=ANKI_DECK_NAME,
                     model_name=ANKI_MODEL_NAME,
                     fields=fields,
-                    tags=word_data.tags
+                    tags=word_data.tags # Pass tags list directly
                 )
 
                 # 5. Record Success
                 results["success"].append({"word": word_data.word, "note_id": note_id})
                 logger.info(f"Successfully added word '{word_data.word}' to Anki (Note ID: {note_id}).")
+                any_success = True # Mark that at least one succeeded
 
+            except ValueError as ve: # Catch specific errors like duplicates
+                 error_message = str(ve)
+                 logger.warning(f"Skipped processing word '{word_data.word}': {error_message}")
+                 results["failed"].append({"word": word_data.word, "error": error_message})
             except Exception as e:
                 # 6. Record Failure for this specific word
                 error_message = str(e)
@@ -143,7 +281,20 @@ def add_words_batch(data: AddWordsInputModel) -> str:
                     response_message += f"- {failure['word']}: {failure['error']}\n"
 
         logger.info(f"Add operation summary: Success={success_count}, Failed={failed_count}")
-        return response_message # Return simple string
+
+        # --- *** TRIGGER BACKUP AFTER PROCESSING *** ---
+        # Trigger backup regardless of partial failures to capture the current state.
+        logger.info("Attempting post-add Anki deck backup...")
+        try:
+            backup_anki_deck_to_csv()
+            response_message += "\n\n💾 Anki deck backup to CSV completed."
+        except Exception as backup_err:
+            # Log backup error but don't let it crash the main response
+            logger.error(f"An error occurred during the post-add backup: {backup_err}", exc_info=True)
+            response_message += "\n\n⚠️ Note: An error occurred during the automatic CSV backup."
+        # --- *** END BACKUP TRIGGER *** ---
+
+        return response_message # Return the combined response string
 
     except ConnectionError as conn_err:
          logger.critical(f"AnkiConnect connection error during batch add: {conn_err}", exc_info=True)
@@ -159,9 +310,12 @@ def add_words_batch(data: AddWordsInputModel) -> str:
 def perform_cleanup():
     logger.info("Performing cleanup before exit...")
     try:
+        # Optional: Add backup on exit? Might be slow.
+        # logger.info("Performing final backup on exit...")
+        # backup_anki_deck_to_csv()
         audio_service.cleanup_unused_audio_files()
     except Exception as e:
-        logger.error(f"Error during audio cleanup on shutdown: {e}", exc_info=True)
+        logger.error(f"Error during cleanup on shutdown: {e}", exc_info=True)
     logger.info("Cleanup finished.")
 
 # Register the cleanup function to run on exit
@@ -181,5 +335,6 @@ if __name__ == "__main__":
          logger.critical(f"Server failed to run: {e}", exc_info=True)
          sys.exit(1)
     finally:
-        logger.info("Server process finished.") # Will be logged after cleanup
+        # This might be logged before atexit finishes in some scenarios
+        logger.info("Server process finishing...")
 

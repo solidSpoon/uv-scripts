@@ -96,4 +96,28 @@ class AnkiConnectClient:
         except Exception as e:
             self.logger.error(f"Failed to get media file names: {e}", exc_info=True)
             raise
+    def find_notes(self, query: str) -> List[int]:
+        """Finds notes matching a query."""
+        try:
+            note_ids = self._invoke("findNotes", {"query": query})
+            if not isinstance(note_ids, list):
+                 raise ValueError(f"AnkiConnect findNotes returned unexpected type: {type(note_ids)}")
+            self.logger.info(f"Found {len(note_ids)} notes matching query: '{query}'")
+            return note_ids
+        except Exception as e:
+            self.logger.error(f"Failed to find notes with query '{query}': {e}", exc_info=True)
+            raise
 
+    def get_notes_info(self, note_ids: List[int]) -> List[Dict[str, Any]]:
+        """Gets detailed information for a list of notes."""
+        if not note_ids:
+            return []
+        try:
+            notes_info = self._invoke("notesInfo", {"notes": note_ids})
+            if not isinstance(notes_info, list):
+                 raise ValueError(f"AnkiConnect notesInfo returned unexpected type: {type(notes_info)}")
+            self.logger.info(f"Retrieved info for {len(notes_info)} notes.")
+            return notes_info
+        except Exception as e:
+            self.logger.error(f"Failed to get info for {len(note_ids)} notes: {e}", exc_info=True)
+            raise

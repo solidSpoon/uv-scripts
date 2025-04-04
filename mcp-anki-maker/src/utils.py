@@ -11,7 +11,7 @@ class WordInput(BaseModel):
     word: str = Field(..., description="The word to add (English only)")
     definition: str = Field(..., description="The definition of the word (English only)")
     example: Optional[str] = Field(None, description="An example sentence using the word (English only)")
-    notes: Optional[str] = Field(None, description="Additional notes about the word (English only)")
+    # notes: Optional[str] = Field(None, description="Additional notes about the word (English only)")
     tags: Optional[List[str]] = Field(None, description="Tags for categorizing the word (alphanumeric, hyphens, and underscores only)")
 
 # --- Validation Functions ---
@@ -31,8 +31,8 @@ def validate_word_data(word_data: WordInput) -> Tuple[bool, Optional[str]]:
         return False, f'Definition for "{word_data.word}" contains invalid characters or is not English.'
     if word_data.example and not TEXT_PATTERN.match(word_data.example):
         return False, f'Example for "{word_data.word}" contains invalid characters or is not English.'
-    if word_data.notes and not TEXT_PATTERN.match(word_data.notes):
-        return False, f'Notes for "{word_data.word}" contains invalid characters or is not English.'
+    # if word_data.notes and not TEXT_PATTERN.match(word_data.notes):
+    #     return False, f'Notes for "{word_data.word}" contains invalid characters or is not English.'
     if word_data.tags:
         for tag in word_data.tags:
             if not TAG_PATTERN.match(tag):

@@ -1,0 +1,38 @@
+word,definition,example,tags
+ephemeral,lasting for a very short time,"Social media posts are often ephemeral, disappearing after 24 hours.",
+Pile,A heap or stack of something.,The hider buried himself in a dirt pile and covered it with dry grass to blend into the environment.,
+Hollow,Having an empty space inside.,"The seeker stepped on the piece of wood and noticed it was hollow, which led to discovering the hider beneath it.",
+Disguise,To change one's appearance or behavior to conceal one's identity or blend in with surroundings.,"In the game, one of the hiders disguised herself as an old man by using makeup and walked around the square.",
+Burdensome,"Something that is heavy or difficult to manage, either physically or mentally.","Reviewing hundreds of vocabulary words daily can become burdensome, but repetition eventually helps.",
+Explicitness,"The quality of being clear and easy to understand, leaving no room for confusion.",Java's explicitness in exception handling ensures that errors are caught early in the development process.,
+Cascade,"A process where something happens in a sequence, with each step triggering the next.","In programming, making one function asynchronous often causes a cascade of changes, requiring other functions to become asynchronous too.",
+Seamless,"Smooth and continuous, with no disruptions or noticeable changes.",Anthropic's new AI features aim to create a seamless interaction between the model and your computer.,
+Scalable,Able to grow or expand to handle increased demand or workload.,Virtual threads make Java applications more scalable by managing thousands of concurrent tasks efficiently.,
+Versatility,The ability to adapt or be used in many different ways.,"Multi-modal AI models, like the one from Anthropic, show versatility in handling both text and screen interactions.",
+Interconnected,Linked or related to one another.,Computer techniques have made meteorology and programming more interconnected than ever before.,
+Slim down,"To make something thinner, lighter, or smaller in size.",Apple managed to slim down the Mac Mini's design thanks to their M-series chips.,
+Snooze,"A short period of light sleep, especially one taken after the alarm rings.","I set my iPhone alarm and hit the snooze button, enjoying nine extra minutes of sleep.",
+Extravaganza,"A large, elaborate, and exciting event or show.",Singles' Day in China has turned into a shopping extravaganza that lasts for an entire month.,
+Daylight Saving Time,The practice of setting the clocks forward by one hour in spring and back by one hour in fall to make better use of natural daylight.,We had to adjust our program schedule to match the U.S. Daylight Saving Time changes.,
+Quilt,"A type of blanket made by stitching together layers of fabric, often with decorative patterns.",I bought a new quilt cover to match my bedroom's decor.,"household,objects"
+Repetition,The act of doing something again and again to improve or learn.,"Repetition is key to mastering a new skill, like learning English vocabulary.","concepts,learning"
+Transcription,The process of converting spoken language into written text.,I often use the Whisper model for accurate transcriptions of videos.,"language,technology"
+Exposure,The state of being introduced to or experiencing something repeatedly.,The second approach to vocabulary learning focuses on repeated exposure to new words.,"concepts,learning"
+Immersion,The act of surrounding yourself completely in a language or activity to learn it better.,Watching English series is a great way to create an immersion environment for learning.,"language,learning"
+Retention,The ability to remember and keep information over time.,This learning method helps improve long-term retention of new vocabulary.,"learning,memory"
+Perspective,A particular way of thinking about something.,My perspective on learning changed after I saw progress from consistent effort.,"concepts,thinking"
+Mastery,A high level of skill or knowledge in a particular subject.,The first approach focuses on mastery of a small set of words before moving on.,"learning,skills"
+E-commerce,The buying and selling of goods or services over the internet.,I work for an international e-commerce company.,"business,technology"
+Scheduling,The act of planning and arranging times for events or activities.,Talking to tutors felt stressful because of the scheduling and pressure to converse.,"organization,time_management"
+Scarecrow,"A figure made to resemble a human, placed in fields to scare away birds from crops.","The scarecrow stood in the field, guarding the corn.","agriculture,objects"
+Mars transfer window,The optimal time to launch a mission to Mars when Earth and Mars are properly aligned in their orbits.,SpaceX is preparing for the next Mars transfer window.,"astronomy,science,space"
+Plush toy,"A soft toy stuffed with materials like cotton, often resembling animals or characters.",She had a collection of plush toys on her bed.,"household,objects"
+Duvet,"A soft quilt filled with down, feathers, or a synthetic alternative, used as a blanket.",The thick duvet kept him warm all night.,"bedding,household"
+Pajamas,"Soft, comfortable clothing worn for sleeping or lounging.",She changed into her favorite pajamas before bed.,"clothing,household"
+Blanket,"A large piece of soft fabric used to cover oneself for warmth, especially while sleeping.",She pulled the blanket up to her chin to stay warm during the cold night.,"bedding,household"
+Underfloor Heating,A system where hot water or electric coils are installed beneath the floor to heat a room.,The underfloor heating kept the tiles warm underfoot.,"heating,home"
+Heating Plant,"A facility that generates heat, usually in the form of hot water or steam, for distribution to buildings.",The heating plant provided warmth to the entire neighborhood through underground pipes.,"heating,infrastructure"
+Radiator,"A heating device, typically mounted on the wall, that transfers heat from hot water or steam to the air in a room.",The radiator made a gentle ticking sound as it heated up the room.,"heating,home"
+Boiler,A device in a heating plant that burns fuel to generate hot water or steam for heating.,The boiler was the heart of the building's heating system.,"equipment,heating"
+Coal,"A black, solid fossil fuel used as a fuel source for heating and power generation.",The heating plant burned coal to produce hot water for the town.,"energy,materials"
+abandon,To leave completely and finally; forsake utterly; desert; to give up control of or responsibility for; yield to another.,"After several failed attempts, they decided to abandon the project.","common,verb"
